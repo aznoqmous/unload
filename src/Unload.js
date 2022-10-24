@@ -66,11 +66,6 @@ export default class Unload extends EventTarget {
         })
     }
 
-    /**
-     * Called when a user click a link
-     * @param {String} href 
-     * @returns 
-     */
     navigateTo(href){
         this.dispatchEvent(new Event('loading'))
 
@@ -97,7 +92,7 @@ export default class Unload extends EventTarget {
                 this.dispatchWindowEvent("unload")
 
                 this.replaceHead(headElement)
-                document.body.outerHTML = bodyElement.outerHTML
+                this.replaceBody(bodyElement)
 
                 if(!this.opts.store) this.store = {}
 
@@ -135,10 +130,18 @@ export default class Unload extends EventTarget {
             link: {
                 multiple: true,
                 keep: true,
-                match: "pathname"
-            },
+                match: (html)=>{
+                    let element = this.getElementFromHTML(html)
+                    return new URL(html.href).pathname
+                }
+            }
+            ,
             script: {
-                multiple: true
+                multiple: true,
+                match: (html)=>{
+                    let element = this.getElementFromHTML(html)
+                    return new URL(html.href).pathname
+                }
             },
             meta: {
                 multiple: true
@@ -157,6 +160,10 @@ export default class Unload extends EventTarget {
             else {
                 newElements = [newHeaderElement.querySelector(selector)]
                 currentElements = [document.head.querySelector(selector)]
+            }
+            if(props.match){
+                newElements = newElements.map(e => props.match(e))
+                currentElements = currentElements.map(e => props.match(e))
             }
             let newElementsHTML = newElements.map(el => el.outerHTML)
             let currentElementsHTML = currentElements.map(el => el.outerHTML)
@@ -177,9 +184,22 @@ export default class Unload extends EventTarget {
 
         })
     }
+    replaceBody(newBodyElement){
+        newBodyElement.getAttributeNames().map(key => {
+            let value = newBodyElement.getAttribute(key)
+            document.body.setAttribute(key, value)
+        })
+        document.body.innerHTML = newBodyElement.innerHTML
+    }
 
     dispatchWindowEvent(eventName){
         window.dispatchEvent(new Event(eventName))
         document.dispatchEvent(new Event(eventName))
+    }
+
+    getElementFromHTML(html){
+        let shadow = document.createElement('div')
+        shadow.innerHTML = html
+        return shadow.children[0]
     }
 }
