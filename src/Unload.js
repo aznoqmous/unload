@@ -1,4 +1,5 @@
 export default class Unload extends EventTarget {
+
     constructor(opts={}) {
         super()
         this.opts = Object.assign({
@@ -21,17 +22,15 @@ export default class Unload extends EventTarget {
         })
 
         this.store = {}
-        this.getPageContent(window.location.pathname)
+        this.loadPageContent(window.location.pathname)
     }
 
     load(){
         this.isLoaded = false
         let loaded = this.loaded()
         setTimeout(()=>{
-            document.dispatchEvent(new Event('DOMContentLoaded'))
-            document.dispatchEvent(new Event('load'))
-            window.dispatchEvent(new Event('DOMContentLoaded'))
-            window.dispatchEvent(new Event('load'))
+            this.dispatchWindowEvent("DOMContentLoaded")
+            this.dispatchWindowEvent("load")
         }, 100)
         return loaded
     }
@@ -60,21 +59,28 @@ export default class Unload extends EventTarget {
         if(a.href.split('/').pop().indexOf('.') > -1) return; // dont process files
 
         a.linked = true
-        if(this.opts.prefetch) a.addEventListener('mouseenter', ()=> this.getPageContent((new URL(a.href)).pathname))
+        if(this.opts.prefetch) a.addEventListener('mouseenter', ()=> this.loadPageContent((new URL(a.href)).pathname))
         a.addEventListener('click', (e)=> {
             e.preventDefault()
             this.navigateTo(a.href)
         })
     }
 
+    /**
+     * Called when a user click a link
+     * @param {String} href 
+     * @returns 
+     */
     navigateTo(href){
-        this.onLoading()
+        this.dispatchEvent(new Event('loading'))
 
         let url = new URL(href)
         this.href = href
 
-        this.getPageContent(url.pathname)
+        return this.loadPageContent(url.pathname)
             .then(html => {
+                window.history.pushState(this.href, "", this.href)
+
                 let parsed = html.split('</head>')
                 let head = parsed[0]
                 let body = parsed[1]
@@ -83,20 +89,36 @@ export default class Unload extends EventTarget {
                 headElement.innerHTML = head
                 let bodyElement = document.createElement('div')
                 bodyElement.innerHTML = body
+                this.newHead = headElement
+                this.newBody = bodyElement
+
+                this.dispatchEvent(new Event('unload'))
+                this.dispatchWindowEvent("beforeunload")
+                this.dispatchWindowEvent("unload")
 
                 this.replaceHead(headElement)
-                document.body.innerHTML = bodyElement.innerHTML
+                document.body.outerHTML = bodyElement.outerHTML
 
                 if(!this.opts.store) this.store = {}
-                
-                this.load()
+
+                return this.load()
                     .then(()=> {
-                        this.onLoaded()
+                        window.scrollTo({
+                            top: 0
+                        })
+                        this.bind()
+                        this.dispatchEvent(new Event('loaded'))
                     })
             })
     }
 
-    getPageContent(pathname){
+    /**
+     * Store a page, can be used to lazyload pages on startup
+     * @param pathname
+     * @returns {Promise<unknown>}
+     */
+    loadPageContent(pathname, forceReload=false){
+        if(forceReload) this.store[pathname] = null
         return new Promise(res => {
             if(!this.store[pathname]) this.store[pathname] = fetch(pathname)
                 .then(res => res.text())
@@ -111,7 +133,9 @@ export default class Unload extends EventTarget {
     replaceHead(newHeaderElement){
         let settings = {
             link: {
-                multiple: true
+                multiple: true,
+                keep: true,
+                match: "pathname"
             },
             script: {
                 multiple: true
@@ -134,32 +158,28 @@ export default class Unload extends EventTarget {
                 newElements = [newHeaderElement.querySelector(selector)]
                 currentElements = [document.head.querySelector(selector)]
             }
-            let added = 0
             let newElementsHTML = newElements.map(el => el.outerHTML)
             let currentElementsHTML = currentElements.map(el => el.outerHTML)
+
+            let added = []
             newElementsHTML.map((newHTML, i)=>{
-                if(currentElementsHTML.includes(newHTML)) return;
+                if(props.keep && currentElementsHTML.includes(newHTML)) return;
                 document.head.appendChild(newElements[i])
-                added++
+                added.push(newHTML)
             })
-            let removed = 0
+
+            let removed = []
             currentElementsHTML.map((currentHTML, i)=>{
-                if(newElementsHTML.includes(currentHTML)) return;
-                currentElements[i-removed].remove()
-                removed++
+                if(props.keep && newElementsHTML.includes(currentHTML)) return;
+                currentElements[i].remove()
+                removed.push(currentHTML)
             })
+
         })
     }
 
-    onLoading(){
-        this.dispatchEvent(new Event('loading'))
-    }
-    onLoaded(){
-        window.scrollTo({
-            top: 0
-        })
-        window.history.pushState(this.href, "", this.href)
-        this.bind()
-        this.dispatchEvent(new Event('loaded'))
+    dispatchWindowEvent(eventName){
+        window.dispatchEvent(new Event(eventName))
+        document.dispatchEvent(new Event(eventName))
     }
 }
