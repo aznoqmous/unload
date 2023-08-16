@@ -2,6 +2,7 @@ export default class Unload extends EventTarget {
 
     constructor(opts = {}) {
         super()
+        this.origin = window.location.origin
         this.opts = Object.assign({
             prefetch: true,
             store: true
@@ -9,35 +10,34 @@ export default class Unload extends EventTarget {
         this.init()
     }
 
-    init() {
+    async init() {
         this.isLoaded = true // first load
-        this.loaded().then(() => {
+
+        await this.loaded()
+        this.bind()
+
+        ;(new MutationObserver((mutations, observer) => {
             this.bind()
-            ;(new MutationObserver((mutations, observer) => {
-                this.bind()
-            })).observe(document.body, {
-                childList: true,
-                subtree: true
-            })
+        })).observe(document.body, {
+            childList: true,
+            subtree: true
         })
 
-        this.store = {}
-        this.loadPageContent(window.location.pathname)
+        await this.loadPageContent(window.location.pathname)
     }
 
-    load() {
+    async load() {
         this.isLoaded = false
-        let loaded = this.loaded()
+        const loaded = await this.loaded()
         setTimeout(() => {
             this.dispatchWindowEvent("DOMContentLoaded")
             this.dispatchWindowEvent("load")
         }, 100)
-        return loaded
     }
 
-    loaded() {
+    async loaded() {
         return new Promise(res => {
-            let resolve = () => {
+            const resolve = () => {
                 document.removeEventListener('DOMContentLoaded', resolve)
                 this.isLoaded = true
                 res()
@@ -47,7 +47,20 @@ export default class Unload extends EventTarget {
         })
     }
 
-    bind() {
+    bind(){
+        this.bindWindow()
+        this.bindLinks()
+    }
+    bindWindow(){
+        if(window._unloadBound) return
+        window._unloadBound = true
+        window.addEventListener('popstate', (e)=>{
+            e.preventDefault()
+            this.navigateTo(e.state, false)
+        })
+    }
+
+    bindLinks() {
         let selfLinks = [...document.querySelectorAll('a')]
             .filter(a => a.href)
             .filter(a => (new URL(a.href)).origin == window.location.origin)
@@ -67,64 +80,69 @@ export default class Unload extends EventTarget {
         })
     }
 
-    navigateTo(href) {
+    async navigateTo(href, pushState=true) {
         this.dispatchEvent(new UnloadLoadingEvent(this))
 
         let url = new URL(href)
         this.href = href
 
-        return this.loadPageContent(url.pathname)
-            .then(html => {
-                window.history.pushState(this.href, "", this.href)
+        const html = await this.loadPageContent(url.pathname)
+        if(pushState) window.history.pushState(this.href, "", this.href)
 
-                let parsed = html.split('</head>')
-                let head = parsed[0]
-                let body = parsed[1]
+        let parsed = html.split('</head>')
+        let head = parsed[0]
+        let body = parsed[1]
 
-                let headElement = document.createElement('div')
-                headElement.innerHTML = head
-                let bodyElement = document.createElement('div')
-                bodyElement.innerHTML = body
-                this.newHead = headElement
-                this.newBody = bodyElement
+        let headElement = document.createElement('div')
+        headElement.innerHTML = head
+        let bodyElement = document.createElement('div')
+        bodyElement.innerHTML = body
+        this.newHead = headElement
+        this.newBody = bodyElement
 
-                this.dispatchEvent(new UnloadUnloadEvent(this))
-                this.dispatchWindowEvent("beforeunload")
-                this.dispatchWindowEvent("unload")
+        this.dispatchEvent(new UnloadUnloadEvent(this))
+        this.dispatchWindowEvent("beforeunload")
+        this.dispatchWindowEvent("unload")
 
-                this.replaceHead(headElement)
-                this.replaceBody(bodyElement)
+        this.replaceHead(headElement)
+        this.replaceBody(bodyElement)
 
-                if (!this.opts.store) this.store = {}
-
-                return this.load()
-                    .then(() => {
-                        window.scrollTo({
-                            top: 0
-                        })
-                        this.bind()
-                        this.dispatchEvent(new UnloadLoadedEvent(this))
-                    })
-            })
+        await this.load()
+        window.scrollTo({
+            top: 0
+        })
+        this.bindLinks()
+        this.dispatchEvent(new UnloadLoadedEvent(this))
     }
 
     /**
      * Store a page, can be used to lazyload pages on startup
      * @param pathname
+     * @param forceReload
      * @returns {Promise<unknown>}
      */
-    loadPageContent(pathname, forceReload = false) {
-        if (forceReload) this.store[pathname] = null
-        return new Promise(res => {
-            if (!this.store[pathname]) this.store[pathname] = fetch(pathname)
-                .then(res => res.text())
-                .then(html => {
-                    this.store[pathname] = new Promise(resolve => resolve(html))
-                    return html
-                })
-            return this.store[pathname].then(html => res(html))
-        })
+    async loadPageContent(pathname, forceReload = false) {
+        let content = this.loadUrl(pathname)
+        if(forceReload || !content){
+            content = await fetch(pathname).then(res => res.text())
+            if(this.opts.store) this.saveUrl(pathname, content)
+        }
+        return content
     }
+
+
+    saveUrl(pathname, content){
+        localStorage.setItem(`unload_${pathname}`, content)
+    }
+
+    loadUrl(pathname){
+        return localStorage.getItem(`unload_${pathname}`)
+    }
+
+    clearStorage(){
+        localStorage.clear()
+    }
+
 
     replaceHead(newHeaderElement) {
         let settings = {
