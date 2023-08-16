@@ -1,6 +1,6 @@
 export default class Unload extends EventTarget {
 
-    constructor(opts={}) {
+    constructor(opts = {}) {
         super()
         this.opts = Object.assign({
             prefetch: true,
@@ -9,11 +9,11 @@ export default class Unload extends EventTarget {
         this.init()
     }
 
-    init(){
+    init() {
         this.isLoaded = true // first load
-        this.loaded().then(()=> {
+        this.loaded().then(() => {
             this.bind()
-            ;(new MutationObserver((mutations, observer)=>{
+            ;(new MutationObserver((mutations, observer) => {
                 this.bind()
             })).observe(document.body, {
                 childList: true,
@@ -25,49 +25,50 @@ export default class Unload extends EventTarget {
         this.loadPageContent(window.location.pathname)
     }
 
-    load(){
+    load() {
         this.isLoaded = false
         let loaded = this.loaded()
-        setTimeout(()=>{
+        setTimeout(() => {
             this.dispatchWindowEvent("DOMContentLoaded")
             this.dispatchWindowEvent("load")
         }, 100)
         return loaded
     }
 
-    loaded(){
+    loaded() {
         return new Promise(res => {
-            let resolve = ()=> {
+            let resolve = () => {
                 document.removeEventListener('DOMContentLoaded', resolve)
                 this.isLoaded = true
                 res()
             }
-            if(document.body && this.isLoaded) return res()
+            if (document.body && this.isLoaded) return res()
             else document.addEventListener('DOMContentLoaded', resolve)
         })
     }
 
-    bind(){
+    bind() {
         let selfLinks = [...document.querySelectorAll('a')]
             .filter(a => a.href)
             .filter(a => (new URL(a.href)).origin == window.location.origin)
         selfLinks.map(a => this.bindLink(a))
     }
-    bindLink(a){
-        if(a.linked) return;
-        if(a.target === "_blank") return;
-        if(a.href.split('/').pop().indexOf('.') > -1) return; // dont process files
+
+    bindLink(a) {
+        if (a.linked) return;
+        if (a.target === "_blank") return;
+        if (a.href.split('/').pop().indexOf('.') > -1) return; // dont process files
 
         a.linked = true
-        if(this.opts.prefetch) a.addEventListener('mouseenter', ()=> this.loadPageContent((new URL(a.href)).pathname))
-        a.addEventListener('click', (e)=> {
+        if (this.opts.prefetch) a.addEventListener('mouseenter', () => this.loadPageContent((new URL(a.href)).pathname))
+        a.addEventListener('click', (e) => {
             e.preventDefault()
             this.navigateTo(a.href)
         })
     }
 
-    navigateTo(href){
-        this.dispatchEvent(new Event('loading'))
+    navigateTo(href) {
+        this.dispatchEvent(new UnloadLoadingEvent(this))
 
         let url = new URL(href)
         this.href = href
@@ -87,22 +88,22 @@ export default class Unload extends EventTarget {
                 this.newHead = headElement
                 this.newBody = bodyElement
 
-                this.dispatchEvent(new Event('unload'))
+                this.dispatchEvent(new UnloadUnloadEvent(this))
                 this.dispatchWindowEvent("beforeunload")
                 this.dispatchWindowEvent("unload")
 
                 this.replaceHead(headElement)
                 this.replaceBody(bodyElement)
 
-                if(!this.opts.store) this.store = {}
+                if (!this.opts.store) this.store = {}
 
                 return this.load()
-                    .then(()=> {
+                    .then(() => {
                         window.scrollTo({
                             top: 0
                         })
                         this.bind()
-                        this.dispatchEvent(new Event('loaded'))
+                        this.dispatchEvent(new UnloadLoadedEvent(this))
                     })
             })
     }
@@ -112,10 +113,10 @@ export default class Unload extends EventTarget {
      * @param pathname
      * @returns {Promise<unknown>}
      */
-    loadPageContent(pathname, forceReload=false){
-        if(forceReload) this.store[pathname] = null
+    loadPageContent(pathname, forceReload = false) {
+        if (forceReload) this.store[pathname] = null
         return new Promise(res => {
-            if(!this.store[pathname]) this.store[pathname] = fetch(pathname)
+            if (!this.store[pathname]) this.store[pathname] = fetch(pathname)
                 .then(res => res.text())
                 .then(html => {
                     this.store[pathname] = new Promise(resolve => resolve(html))
@@ -125,12 +126,12 @@ export default class Unload extends EventTarget {
         })
     }
 
-    replaceHead(newHeaderElement){
+    replaceHead(newHeaderElement) {
         let settings = {
             link: {
                 multiple: true,
                 keep: true,
-                match: (html)=>{
+                match: (html) => {
                     let element = this.getElementFromHTML(html)
                     return new URL(html.href).pathname
                 }
@@ -138,9 +139,9 @@ export default class Unload extends EventTarget {
             ,
             script: {
                 multiple: true,
-                match: (html)=>{
+                match: (html) => {
                     let element = this.getElementFromHTML(html)
-                    return new URL(html.href).pathname
+                    return new URL(html.src).pathname
                 }
             },
             meta: {
@@ -148,43 +149,51 @@ export default class Unload extends EventTarget {
             },
             title: {}
         }
-        Object.keys(settings).map(key => {
-            let props = settings[key]
-            let selector = props.selector || key
-            let newElements = []
-            let currentElements = []
-            if(props.multiple) {
-                newElements = [...newHeaderElement.querySelectorAll(selector)]
-                currentElements = [...document.head.querySelectorAll(selector)]
-            }
-            else {
-                newElements = [newHeaderElement.querySelector(selector)]
-                currentElements = [document.head.querySelector(selector)]
-            }
-            if(props.match){
-                newElements = newElements.map(e => props.match(e))
-                currentElements = currentElements.map(e => props.match(e))
-            }
-            let newElementsHTML = newElements.map(el => el.outerHTML)
-            let currentElementsHTML = currentElements.map(el => el.outerHTML)
+        Object
+            .keys(settings)
+            .map(key => {
+                let props = settings[key]
+                let selector = props.selector || key
+                let newElements = []
+                let currentElements = []
 
-            let added = []
-            newElementsHTML.map((newHTML, i)=>{
-                if(props.keep && currentElementsHTML.includes(newHTML)) return;
-                document.head.appendChild(newElements[i])
-                added.push(newHTML)
+                if (props.multiple) {
+                    newElements = [...newHeaderElement.querySelectorAll(selector)]
+                    currentElements = [...document.head.querySelectorAll(selector)]
+                } else {
+                    newElements = [newHeaderElement.querySelector(selector)]
+                    currentElements = [document.head.querySelector(selector)]
+                }
+
+                // TODO : Redo match
+                // if (props.match) {
+                //     newElements = newElements.map(e => props.match(e))
+                //     currentElements = currentElements.map(e => props.match(e))
+                // }
+
+                let newElementsHTML = newElements.map(el => el.outerHTML)
+                let currentElementsHTML = currentElements.map(el => el.outerHTML)
+
+                let added = []
+                newElementsHTML.map((newHTML, i) => {
+                    if (props.keep && currentElementsHTML.includes(newHTML)) return;
+                    if (!newElements[i]) return;
+                    document.head.appendChild(newElements[i])
+                    added.push(newHTML)
+                })
+
+                let removed = []
+                currentElementsHTML.map((currentHTML, i) => {
+                    if (props.keep && newElementsHTML.includes(currentHTML)) return;
+                    if (!currentElements[i]) return;
+                    currentElements[i].remove()
+                    removed.push(currentHTML)
+                })
+
             })
-
-            let removed = []
-            currentElementsHTML.map((currentHTML, i)=>{
-                if(props.keep && newElementsHTML.includes(currentHTML)) return;
-                currentElements[i].remove()
-                removed.push(currentHTML)
-            })
-
-        })
     }
-    replaceBody(newBodyElement){
+
+    replaceBody(newBodyElement) {
         newBodyElement.getAttributeNames().map(key => {
             let value = newBodyElement.getAttribute(key)
             document.body.setAttribute(key, value)
@@ -192,14 +201,42 @@ export default class Unload extends EventTarget {
         document.body.innerHTML = newBodyElement.innerHTML
     }
 
-    dispatchWindowEvent(eventName){
+    dispatchWindowEvent(eventName) {
         window.dispatchEvent(new Event(eventName))
         document.dispatchEvent(new Event(eventName))
     }
 
-    getElementFromHTML(html){
+    getElementFromHTML(html) {
         let shadow = document.createElement('div')
         shadow.innerHTML = html
         return shadow.children[0]
+    }
+}
+
+
+export const UnloadEvents = {
+    Loading: "unloadLoading",
+    Unload: "unloadUnload",
+    Loaded: "unloadLoaded",
+}
+
+export class UnloadLoadingEvent extends CustomEvent {
+    constructor(unload) {
+        super(UnloadEvents.Loading)
+        this.unload = unload
+    }
+}
+
+export class UnloadUnloadEvent extends CustomEvent {
+    constructor(unload) {
+        super(UnloadEvents.Unload)
+        this.unload = unload
+    }
+}
+
+export class UnloadLoadedEvent extends CustomEvent {
+    constructor(unload) {
+        super(UnloadEvents.Loaded)
+        this.unload = unload
     }
 }

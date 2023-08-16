@@ -50,13 +50,25 @@ Every Unload events are triggered within navigateTo method aka when a user click
 ```js
 // Example: set a "loading" css class on navigation
 const unload = new Unload()
-unload.addEventListener('loading', ()=>{
+unload.addEventListener('unloadLoading', ()=>{
     document.body.classList.add('loading')
 })
-unload.addEventListener('unload', (event)=>{
+unload.addEventListener('unloadUnload', (event)=>{
     event.target.newBody.classList.add('loading')
 })
-unload.addEventListener('loaded', ()=> {
+unload.addEventListener('loadedLoaded', ()=> {
+    document.body.classList.remove('loading')
+})
+
+// alternatively you can use the UnloadEvents constant
+const unload = new Unload()
+unload.addEventListener(UnloadEvents.Loading, ()=>{
+    document.body.classList.add('loading')
+})
+unload.addEventListener(UnloadEvents.Unload, (event)=>{
+    event.target.newBody.classList.add('loading')
+})
+unload.addEventListener(UnloadEvents.Loaded, ()=> {
     document.body.classList.remove('loading')
 })
 ```
